@@ -15,6 +15,13 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    // Add missing fields for password reset functionality
+    resetPasswordToken: {
+      type: String,
+    },
+    resetPasswordExpire: {
+      type: Date,
+    },
   },
   { timestamps: true }
 );
