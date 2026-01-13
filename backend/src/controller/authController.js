@@ -12,6 +12,21 @@ const createUser = async (req, res) => {
       });
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(req.body.email)) {
+      return res.status(400).send({ 
+        message: "Please provide a valid email address" 
+      });
+    }
+
+    // Validate password length
+    if (req.body.password.length < 6) {
+      return res.status(400).send({ 
+        message: "Password must be at least 6 characters long" 
+      });
+    }
+
     // Check if user already exists
     let user = await usersModel.findOne({ email: req.body.email });
     
@@ -24,18 +39,19 @@ const createUser = async (req, res) => {
     // Hash the password
     const hashedPassword = await auth.hashData(req.body.password);
 
-    // Create the user
+    // Create the user with default role
     const newUser = await usersModel.create({
       name: req.body.name,
       email: req.body.email,
       password: hashedPassword,
+      role: req.body.role || 'user', // Default to 'user' if not provided
     });
 
     // Send welcome email (non-blocking - don't wait for it)
     sendEmail(
       req.body.email,
       "Welcome to QuizMakerPro",
-      "Thank you for creating an account with us. We're excited to have you on board!"
+      `Hello ${req.body.name},\n\nThank you for creating an account with us. We're excited to have you on board!\n\nBest regards,\nQuizMakerPro Team`
     ).catch(err => {
       console.error("Error sending welcome email:", err.message);
       // Don't fail the registration if email fails
@@ -49,6 +65,14 @@ const createUser = async (req, res) => {
     
   } catch (error) {
     console.error(`Error in ${req.originalUrl}`, error.message);
+    
+    // Handle duplicate key error (unique constraint)
+    if (error.code === 11000) {
+      return res.status(400).send({ 
+        message: "Email already exists" 
+      });
+    }
+    
     res.status(500).send({ 
       message: error.message || "Internal Server Error" 
     });
@@ -62,6 +86,14 @@ const login = async (req, res) => {
     if (!email || !password) {
       return res.status(400).send({ 
         message: "Email and password are required" 
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).send({ 
+        message: "Please provide a valid email address" 
       });
     }
 
@@ -82,17 +114,17 @@ const login = async (req, res) => {
       });
     }
 
-    // Create token
+    // Create token with role
     const token = auth.createToken({
       email: user.email,
       name: user.name,
-      role: user.role,
+      role: user.role || 'user',
       id: user._id,
     });
 
     res.status(200).send({
       message: "Login Successful",
-      role: user.role,
+      role: user.role || 'user',
       token,
       id: user._id,
     });
@@ -113,6 +145,14 @@ const forgotPassword = async (req, res) => {
       return res.status(400).json({ message: "Email is required" });
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).send({ 
+        message: "Please provide a valid email address" 
+      });
+    }
+
     // Find user by email
     const user = await usersModel.findOne({ email });
     
@@ -128,14 +168,14 @@ const forgotPassword = async (req, res) => {
     user.resetPasswordExpire = Date.now() + 3600000; // 1 hour from now
     await user.save();
 
-    // Create reset URL - Update this URL to match your frontend
+    // Create reset URL
     const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/resetpassword/${resetToken}`;
 
     // Send email with the reset link
     await sendEmail(
       user.email,
       "Password Reset Request",
-      `To reset your password, click the link below:\n\n${resetUrl}\n\nThis link will expire in 1 hour.`
+      `Hello ${user.name},\n\nYou requested a password reset. Click the link below to reset your password:\n\n${resetUrl}\n\nThis link will expire in 1 hour.\n\nIf you didn't request this, please ignore this email.\n\nBest regards,\nQuizMakerPro Team`
     );
 
     res.status(200).json({ message: "Reset link sent to your email" });
@@ -155,6 +195,13 @@ const resetPassword = async (req, res) => {
     if (!token || !newPassword) {
       return res.status(400).json({ 
         message: "Token and new password are required" 
+      });
+    }
+
+    // Validate password length
+    if (newPassword.length < 6) {
+      return res.status(400).send({ 
+        message: "Password must be at least 6 characters long" 
       });
     }
 

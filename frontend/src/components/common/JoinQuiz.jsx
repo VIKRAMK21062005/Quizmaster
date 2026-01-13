@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import NavBar from "./NavBar";
@@ -13,6 +13,8 @@ const JoinQuiz = () => {
   const [searchQuery, setSearchQuery] = useState(""); // State for search query
   const [privateQuizCode, setPrivateQuizCode] = useState("");
   const [showPrivateQuizModal, setShowPrivateQuizModal] = useState(false);
+  const [showRetakeModal, setShowRetakeModal] = useState(false);
+  const [selectedQuiz, setSelectedQuiz] = useState(null);
   const navigate = useNavigate();
 
   // Fetch all public quizzes
@@ -68,15 +70,47 @@ const JoinQuiz = () => {
       const response = await api.post(path, {}, { authenticate });
 
       if (response) {
-        toast.success("Successfully joined the public quiz!");
-        navigate(`/questions/quiz/${quizId}`);
-      } else {
-        toast.error("Failed to join the public quiz.");
+        // Check if user has already attempted
+        if (response.canRetake) {
+          setSelectedQuiz({
+            id: quizId,
+            previousScore: response.previousScore,
+            name: response.quiz.name,
+          });
+          setShowRetakeModal(true);
+        } else {
+          toast.success("Successfully joined the public quiz!");
+          navigate(`/questions/quiz/${quizId}`);
+        }
       }
     } catch (error) {
       console.error("Error joining public quiz:", error);
-      toast.error("Error occurred while joining the public quiz.");
+      
+      // Handle specific error cases
+      if (error.response?.status === 400) {
+        const errorMsg = error.response.data?.message;
+        if (errorMsg?.includes("already attempted")) {
+          toast.error("You have already attempted this quiz. Redirecting to retake...");
+          navigate(`/questions/quiz/${quizId}`);
+        } else {
+          toast.error(errorMsg || "Cannot join this quiz.");
+        }
+      } else {
+        toast.error("Error occurred while joining the public quiz.");
+      }
     }
+  };
+
+  // Confirm retake
+  const handleConfirmRetake = () => {
+    setShowRetakeModal(false);
+    navigate(`/questions/quiz/${selectedQuiz.id}`);
+  };
+
+  // Cancel retake and view previous results
+  const handleViewResults = () => {
+    setShowRetakeModal(false);
+    toast.info(`Your previous score: ${selectedQuiz.previousScore}`);
   };
 
   // Join a private quiz
@@ -96,14 +130,31 @@ const JoinQuiz = () => {
       );
 
       if (response) {
-        toast.success("Successfully joined the private quiz!");
-        navigate(`/questions/quiz/${response.quiz._id}`);
-      } else {
-        toast.error("Failed to join the private quiz.");
+        // Check if user has already attempted
+        if (response.canRetake) {
+          setSelectedQuiz({
+            id: response.quiz._id,
+            previousScore: response.previousScore,
+            name: response.quiz.name,
+          });
+          setShowPrivateQuizModal(false);
+          setShowRetakeModal(true);
+        } else {
+          toast.success("Successfully joined the private quiz!");
+          setShowPrivateQuizModal(false);
+          navigate(`/questions/quiz/${response.quiz._id}`);
+        }
       }
     } catch (error) {
       console.error("Error joining private quiz:", error);
-      toast.error("Error occurred while joining the private quiz.");
+      
+      if (error.response?.status === 404) {
+        toast.error("Invalid quiz code. Please check and try again.");
+      } else if (error.response?.data?.message?.includes("already attempted")) {
+        toast.error("You have already attempted this quiz.");
+      } else {
+        toast.error("Error occurred while joining the private quiz.");
+      }
     }
   };
 
@@ -135,6 +186,7 @@ const JoinQuiz = () => {
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder='Search by quiz name or creator'
               className='px-4 py-2 border border-gray-300 rounded-md mr-4 w-full outline-none'
+              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
             />
             <button
               onClick={handleSearch}
@@ -213,6 +265,41 @@ const JoinQuiz = () => {
         </div>
       </div>
 
+      {/* Retake Confirmation Modal */}
+      {showRetakeModal && (
+        <div
+          className='fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50'
+          aria-modal='true'
+          role='dialog'
+        >
+          <div className='bg-white p-6 rounded-md shadow-lg max-w-md w-full'>
+            <h2 className='text-xl font-bold mb-4'>Quiz Already Attempted</h2>
+            <p className='mb-4'>
+              You have already attempted "{selectedQuiz?.name}".
+              <br />
+              <span className='font-semibold'>Previous Score: {selectedQuiz?.previousScore}</span>
+            </p>
+            <p className='mb-4 text-sm text-gray-600'>
+              Would you like to retake the quiz? Your new score will replace the previous one.
+            </p>
+            <div className='flex justify-end gap-2'>
+              <button
+                onClick={handleViewResults}
+                className='px-4 py-2 bg-gray-300 text-gray-900 font-bold rounded-md hover:bg-gray-400'
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmRetake}
+                className='px-4 py-2 bg-indigo-600 text-white font-bold rounded-md hover:bg-indigo-700'
+              >
+                Retake Quiz
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Private Quiz Modal */}
       {showPrivateQuizModal && (
         <div
@@ -228,6 +315,7 @@ const JoinQuiz = () => {
               onChange={(e) => setPrivateQuizCode(e.target.value)}
               placeholder='Enter Quiz Code'
               className='w-full px-3 py-2 border border-gray-300 rounded-md mb-4'
+              onKeyPress={(e) => e.key === 'Enter' && handleJoinPrivateQuiz()}
             />
             <div className='flex justify-end gap-2'>
               <button
